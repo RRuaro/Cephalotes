@@ -283,20 +283,24 @@ SoE_ant2<-SoE_ant[,4:8]
 isolation<-c(150,700,0,600,225,150,300,900,450)
 as.data.frame(isolation)->is
 #
+read.csv("pdbff_coord.csv")->coords
 final_resu<-{}
 for (y in 1:ncol(resp_table)) {
   lms_ant<-lapply(1:ncol(SoE_ant2),function(x){
   data.frame(S=resp_table[,y],Frag=ID,Farm=farm,PS=logPS,isolation=is,HA=SoE_ant2[,x])->temp_data
   scale(temp_data[,c("HA","PS","isolation")])->temp_data[,c("HA","PS","isolation")]
   glmmTMB(S~HA+PS+(1|Farm),family = "gaussian", data=temp_data)->lm_temp
+  simres <- simulateResiduals(lm_temp)
+  testSpatialAutocorrelation(simres, x = coords$long , y = coords$lat)->resitemp
   data.frame(summary(lm_temp)[[6]]$cond,
              var=rownames(summary(lm_temp)[[6]]$cond),
              escala=colnames(SoE_ant2)[x],
              AIC=AIC(lm_temp),
              R2m=r.squaredGLMM(lm_temp)[1],
              R2c=r.squaredGLMM(lm_temp)[2],
-             COR=cor(temp_data[,c("HA","PS")])[1,2]) -> coef_temp
-  colnames(coef_temp)=c("Estimate","Error","t","P","var","escala","AIC","R2m","R2c","COR")
+             COR=cor(temp_data[,c("HA","PS")])[1,2],
+             pvalue_residuals = resitemp$p.value) -> coef_temp
+  colnames(coef_temp)=c("Estimate","Error","t","P","var","escala","AIC","R2m","R2c","COR","Residuals_p-value")
   return(coef_temp)
 })
 do.call("rbind",lms_ant)->lms_ant
@@ -355,6 +359,18 @@ resid_richness4 <- residuals(model_aux3)
 model3 <- lm(resid_richness4 ~ Size, data = table_partial)
 summary(model3)  
 
+
+#### AUTOCORELAÇÃO ESPACIAL - Morans' I ####
+data.frame(S=resp_table$Richness_forest,Frag=ID,Farm=farm,PS=logPS,HA=SoE_ant2$HA3000)->temp_data
+scale(temp_data[,c("HA","PS")])->temp_data[,c("HA","PS")]
+modelo<- glmmTMB(S~HA+PS+(1|Farm),family = "gaussian", data=temp_data)
+library(DHARMa)
+simres <- simulateResiduals(modelo)
+read.csv("pdbff_coord.csv")->coords
+testSpatialAutocorrelation(simres, x = coords$long , y = coords$lat)
+
+####
+
 ####  Beta diversity between fragments ####
 ## All ants
 lms_ant<-lapply(1:ncol(SoE_ant2),function(x){
@@ -407,6 +423,11 @@ rep(c(1000,1500,2000,2500,3000),each=2)->tabeta$scale
 rep("Between-fragments β-diversity",5)->tabeta$resp_var
 #
 write.csv(tabeta,"model_coefs_beta.csv",row.names = F)
+
+#### Mantel Test - residual autocorrelation #### 
+resid_beta <- residuals(modelbeta, type = "pearson")
+
+
 #### Nestedness x Turnover ####
 ## All Ants
 occ_all <- decostand(abund_plot, "pa")
